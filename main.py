@@ -1,8 +1,3 @@
-"""
-airaFace 2.0 API Integration - Flask Application
-Main entry point with camera access
-"""
-
 from flask import Flask, jsonify, request, render_template, Response
 from flask_cors import CORS
 import requests
@@ -12,22 +7,13 @@ from datetime import datetime, timedelta
 import urllib3
 import cv2
 import numpy as np
-from io import BytesIO
 
-# Disable SSL warnings for development (remove in production)
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
-
-# Load environment variables
 load_dotenv()
-
-# Initialize Flask app
 app = Flask(__name__)
 CORS(app)
-
-# Configuration
 app.config['SECRET_KEY'] = os.getenv('SECRET_KEY', 'dev-secret-key')
 
-# airaFace API Configuration
 AIRA_CONFIG = {
     'protocol': os.getenv('AIRA_PROTOCOL', 'https'),
     'server_ip': os.getenv('AIRA_SERVER_IP', '192.168.1.100'),
@@ -38,7 +24,6 @@ AIRA_CONFIG = {
 
 AIRA_BASE_URL = f"{AIRA_CONFIG['protocol']}://{AIRA_CONFIG['server_ip']}:{AIRA_CONFIG['port']}/airafacelite"
 
-# In-memory token storage (use Redis/database in production)
 token_storage = {
     'token': None,
     'expires_at': None
@@ -53,10 +38,7 @@ camera_storage = {}
 # ============================================
 
 def get_aira_token(force_refresh=False):
-    """
-    Get or refresh airaFace API token
-    Token is valid for 1 hour
-    """
+
     now = datetime.now()
 
     # Return cached token if still valid
@@ -72,10 +54,9 @@ def get_aira_token(force_refresh=False):
                 'username': AIRA_CONFIG['username'],
                 'password': AIRA_CONFIG['password']
             },
-            verify=False,  # Skip SSL verification (remove in production with proper certs)
+            verify=False,
             timeout=10
         )
-
         if response.status_code == 200:
             data = response.json()
             token_storage['token'] = data.get('token')
@@ -90,9 +71,7 @@ def get_aira_token(force_refresh=False):
 
 
 def make_aira_request(method, endpoint, data=None, params=None):
-    """
-    Make authenticated request to airaFace API
-    """
+
     token = get_aira_token()
     headers = {'token': token}
     url = f"{AIRA_BASE_URL}{endpoint}"
@@ -116,9 +95,7 @@ def make_aira_request(method, endpoint, data=None, params=None):
 
 
 def get_camera_stream(camera_url, username=None, password=None):
-    """
-    Get camera stream using OpenCV
-    """
+
     try:
         # Build RTSP URL with credentials if provided
         if username and password:
@@ -139,19 +116,13 @@ def get_camera_stream(camera_url, username=None, password=None):
         return None
 
 
-# ============================================
-# Web Interface Routes
-# ============================================
-
 @app.route('/')
 def index():
-    """Main web interface"""
     return render_template('index.html')
 
 
 @app.route('/api/health')
 def health_check():
-    """Check if airaFace API is reachable"""
     try:
         token = get_aira_token()
         return jsonify({
@@ -187,19 +158,12 @@ def refresh_token():
 
 @app.route('/api/camera/<camera_id>/snapshot')
 def get_camera_snapshot(camera_id):
-    """
-    Get a single snapshot from the camera
-    """
+
     try:
-        # Get camera info from storage
         camera = camera_storage.get(camera_id)
-
         if not camera:
-            # For demo purposes, return a placeholder image
-            # In production, retrieve actual camera info from airaFace API
-            return jsonify({'error': 'Camera not found'}), 404
 
-        # Get camera stream
+            return jsonify({'error': 'Camera not found'}), 404
         cap = get_camera_stream(
             camera.get('url'),
             camera.get('username'),
@@ -207,8 +171,6 @@ def get_camera_snapshot(camera_id):
         )
 
         if cap is None:
-            # Return placeholder image if camera not accessible
-            # Create a blank image with text
             img = np.zeros((480, 640, 3), dtype=np.uint8)
             cv2.putText(img, 'Camera Offline', (200, 240),
                         cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 255), 2)
@@ -242,7 +204,6 @@ def camera_stream(camera_id):
         camera = camera_storage.get(camera_id)
 
         if not camera:
-            # Generate placeholder frames
             while True:
                 img = np.zeros((480, 640, 3), dtype=np.uint8)
                 cv2.putText(img, 'Camera Not Configured', (150, 240),
@@ -299,9 +260,7 @@ def list_persons():
 
 @app.route('/api/persons', methods=['POST'])
 def create_person():
-    """Create a new person in airaFace system"""
     data = request.get_json()
-
     # Validate required fields
     if not data.get('fullname'):
         return jsonify({'error': 'fullname is required'}), 400
@@ -320,13 +279,10 @@ def modify_person(person_id):
     return jsonify(result), status
 
 
-# ============================================
-# Camera Management Routes
-# ============================================
 
 @app.route('/api/cameras', methods=['GET'])
 def list_cameras():
-    """List all cameras"""
+
     result, status = make_aira_request('GET', '/querycamera')
     return jsonify(result), status
 
@@ -410,11 +366,6 @@ def modify_event(event_id):
     result, status = make_aira_request('POST', '/modifyeventhandle', data=data)
     return jsonify(result), status
 
-
-# ============================================
-# Recognition Results Routes
-# ============================================
-
 @app.route('/api/recognitions', methods=['GET'])
 def query_recognitions():
     """Query recognition results"""
@@ -433,13 +384,10 @@ def query_recognitions():
     return jsonify(result), status
 
 
-# ============================================
-# WebSocket Info Route
-# ============================================
 
 @app.route('/api/websocket/info')
 def websocket_info():
-    """Get WebSocket connection information"""
+
     ws_url = f"ws://{AIRA_CONFIG['server_ip']}/airafacelite/verifyresults"
 
     return jsonify({
@@ -472,7 +420,7 @@ def internal_error(error):
 
 if __name__ == '__main__':
     # Create necessary directories
-    os.makedirs('templates', exist_ok=True)
+    os.makedirs('template', exist_ok=True)
     os.makedirs('static/css', exist_ok=True)
     os.makedirs('static/js', exist_ok=True)
 
@@ -481,3 +429,4 @@ if __name__ == '__main__':
         port=5000,
         debug=True
     )
+
