@@ -1,13 +1,20 @@
+"""
+airaFace 2.0 API Integration - Flask Application
+Main entry point with camera access
+"""
 
-from flask import Flask, jsonify, request
+from flask import Flask, jsonify, request, render_template, Response
 from flask_cors import CORS
 import requests
 import os
 from dotenv import load_dotenv
 from datetime import datetime, timedelta
 import urllib3
+import cv2
+import numpy as np
+from io import BytesIO
 
-
+# Disable SSL warnings for development (remove in production)
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 # Load environment variables
@@ -31,11 +38,14 @@ AIRA_CONFIG = {
 
 AIRA_BASE_URL = f"{AIRA_CONFIG['protocol']}://{AIRA_CONFIG['server_ip']}:{AIRA_CONFIG['port']}/airafacelite"
 
-
+# In-memory token storage (use Redis/database in production)
 token_storage = {
     'token': None,
     'expires_at': None
 }
+
+# In-memory camera storage
+camera_storage = {}
 
 
 # ============================================
@@ -105,19 +115,38 @@ def make_aira_request(method, endpoint, data=None, params=None):
         return {'error': f'API request failed: {str(e)}'}, 500
 
 
+def get_camera_stream(camera_url, username=None, password=None):
+    """
+    Get camera stream using OpenCV
+    """
+    try:
+        # Build RTSP URL with credentials if provided
+        if username and password:
+            # Format: rtsp://username:password@ip:port/path
+            url_parts = camera_url.replace('rtsp://', '').split('/')
+            host_part = url_parts[0]
+            path_part = '/'.join(url_parts[1:]) if len(url_parts) > 1 else ''
+            camera_url = f"rtsp://{username}:{password}@{host_part}/{path_part}"
+
+        cap = cv2.VideoCapture(camera_url)
+
+        if not cap.isOpened():
+            return None
+
+        return cap
+    except Exception as e:
+        print(f"Error opening camera stream: {e}")
+        return None
+
+
 # ============================================
-# Routes
+# Web Interface Routes
 # ============================================
 
 @app.route('/')
 def index():
-    """Health check endpoint"""
-    return jsonify({
-        'status': 'running',
-        'service': 'airaFace API Integration',
-        'version': '1.0.0',
-        'aira_server': f"{AIRA_CONFIG['protocol']}://{AIRA_CONFIG['server_ip']}:{AIRA_CONFIG['port']}"
-    })
+    """Main web interface"""
+    return render_template('index.html')
 
 
 @app.route('/api/health')
@@ -153,17 +182,119 @@ def refresh_token():
 
 
 # ============================================
+# Camera Access Routes
+# ============================================
+
+@app.route('/api/camera/<camera_id>/snapshot')
+def get_camera_snapshot(camera_id):
+    """
+    Get a single snapshot from the camera
+    """
+    try:
+        # Get camera info from storage
+        camera = camera_storage.get(camera_id)
+
+        if not camera:
+            # For demo purposes, return a placeholder image
+            # In production, retrieve actual camera info from airaFace API
+            return jsonify({'error': 'Camera not found'}), 404
+
+        # Get camera stream
+        cap = get_camera_stream(
+            camera.get('url'),
+            camera.get('username'),
+            camera.get('password')
+        )
+
+        if cap is None:
+            # Return placeholder image if camera not accessible
+            # Create a blank image with text
+            img = np.zeros((480, 640, 3), dtype=np.uint8)
+            cv2.putText(img, 'Camera Offline', (200, 240),
+                        cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 255), 2)
+            _, buffer = cv2.imencode('.jpg', img)
+            return Response(buffer.tobytes(), mimetype='image/jpeg')
+
+        # Read frame
+        ret, frame = cap.read()
+        cap.release()
+
+        if not ret:
+            return jsonify({'error': 'Failed to capture frame'}), 500
+
+        # Encode frame as JPEG
+        _, buffer = cv2.imencode('.jpg', frame)
+
+        return Response(buffer.tobytes(), mimetype='image/jpeg')
+
+    except Exception as e:
+        print(f"Error getting camera snapshot: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/camera/<camera_id>/stream')
+def camera_stream(camera_id):
+    """
+    Stream camera video (MJPEG format)
+    """
+
+    def generate_frames(camera_id):
+        camera = camera_storage.get(camera_id)
+
+        if not camera:
+            # Generate placeholder frames
+            while True:
+                img = np.zeros((480, 640, 3), dtype=np.uint8)
+                cv2.putText(img, 'Camera Not Configured', (150, 240),
+                            cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 255), 2)
+                _, buffer = cv2.imencode('.jpg', img)
+                yield (b'--frame\r\n'
+                       b'Content-Type: image/jpeg\r\n\r\n' + buffer.tobytes() + b'\r\n')
+        else:
+            cap = get_camera_stream(
+                camera.get('url'),
+                camera.get('username'),
+                camera.get('password')
+            )
+
+            if cap is None:
+                # Generate error frame
+                img = np.zeros((480, 640, 3), dtype=np.uint8)
+                cv2.putText(img, 'Camera Offline', (200, 240),
+                            cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 255), 2)
+                _, buffer = cv2.imencode('.jpg', img)
+                yield (b'--frame\r\n'
+                       b'Content-Type: image/jpeg\r\n\r\n' + buffer.tobytes() + b'\r\n')
+                return
+
+            try:
+                while True:
+                    ret, frame = cap.read()
+                    if not ret:
+                        break
+
+                    # Encode frame
+                    _, buffer = cv2.imencode('.jpg', frame)
+
+                    # Yield frame in MJPEG format
+                    yield (b'--frame\r\n'
+                           b'Content-Type: image/jpeg\r\n\r\n' + buffer.tobytes() + b'\r\n')
+            finally:
+                cap.release()
+
+    return Response(generate_frames(camera_id),
+                    mimetype='multipart/x-mixed-replace; boundary=frame')
+
+
+# ============================================
 # Person Management Routes
 # ============================================
 
 @app.route('/api/persons', methods=['GET'])
 def list_persons():
-    """List all registered persons (placeholder - actual endpoint TBD)"""
-    # Note: Check Postman collection for actual endpoint
-    return jsonify({
-        'message': 'List persons endpoint',
-        'note': 'Actual endpoint to be verified from airaFace API documentation'
-    })
+    """List all registered persons"""
+    result, status = make_aira_request('GET', '/queryperson')
+    return jsonify(result), status
 
 
 @app.route('/api/persons', methods=['POST'])
@@ -193,10 +324,26 @@ def modify_person(person_id):
 # Camera Management Routes
 # ============================================
 
+@app.route('/api/cameras', methods=['GET'])
+def list_cameras():
+    """List all cameras"""
+    result, status = make_aira_request('GET', '/querycamera')
+    return jsonify(result), status
+
+
 @app.route('/api/cameras', methods=['POST'])
 def create_camera():
     """Register a new camera/device"""
     data = request.get_json()
+
+    # Store camera info locally for stream access
+    camera_id = data.get('id', f"camera_{len(camera_storage) + 1}")
+    camera_storage[camera_id] = {
+        'url': data.get('url'),
+        'username': data.get('username'),
+        'password': data.get('password'),
+        'name': data.get('name')
+    }
 
     result, status = make_aira_request('POST', '/createcamera', data=data)
     return jsonify(result), status
@@ -208,9 +355,22 @@ def modify_camera(camera_id):
     data = request.get_json()
     data['id'] = camera_id
 
+    # Update local storage
+    if camera_id in camera_storage:
+        camera_storage[camera_id].update({
+            'url': data.get('url', camera_storage[camera_id].get('url')),
+            'username': data.get('username', camera_storage[camera_id].get('username')),
+            'password': data.get('password', camera_storage[camera_id].get('password')),
+            'name': data.get('name', camera_storage[camera_id].get('name'))
+        })
+
     result, status = make_aira_request('POST', '/modifycamera', data=data)
     return jsonify(result), status
 
+
+# ============================================
+# Event Handler Routes
+# ============================================
 
 @app.route('/api/events', methods=['POST'])
 def create_event():
@@ -251,9 +411,14 @@ def modify_event(event_id):
     return jsonify(result), status
 
 
+# ============================================
+# Recognition Results Routes
+# ============================================
+
 @app.route('/api/recognitions', methods=['GET'])
 def query_recognitions():
     """Query recognition results"""
+    # Get query parameters
     params = {
         'start_time': request.args.get('start_time'),
         'end_time': request.args.get('end_time'),
@@ -261,11 +426,16 @@ def query_recognitions():
         'camera_id': request.args.get('camera_id')
     }
 
+    # Remove None values
     params = {k: v for k, v in params.items() if v is not None}
 
     result, status = make_aira_request('GET', '/querypersonverifyresult', params=params)
     return jsonify(result), status
 
+
+# ============================================
+# WebSocket Info Route
+# ============================================
 
 @app.route('/api/websocket/info')
 def websocket_info():
@@ -290,8 +460,6 @@ def websocket_info():
     })
 
 
-
-
 @app.errorhandler(404)
 def not_found(error):
     return jsonify({'error': 'Endpoint not found'}), 404
@@ -302,9 +470,11 @@ def internal_error(error):
     return jsonify({'error': 'Internal server error'}), 500
 
 
-
 if __name__ == '__main__':
-
+    # Create necessary directories
+    os.makedirs('templates', exist_ok=True)
+    os.makedirs('static/css', exist_ok=True)
+    os.makedirs('static/js', exist_ok=True)
 
     app.run(
         host='0.0.0.0',

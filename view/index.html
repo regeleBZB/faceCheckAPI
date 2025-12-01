@@ -1,0 +1,220 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>airaFace Camera Management</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>🎥 airaFace Camera Management</h1>
+            <div class="status" id="apiStatus">
+                <span class="status-indicator"></span>
+                <span class="status-text">Checking connection...</span>
+            </div>
+        </header>
+
+        <nav class="tabs">
+            <button class="tab-btn active" data-tab="cameras">Cameras</button>
+            <button class="tab-btn" data-tab="persons">Persons</button>
+            <button class="tab-btn" data-tab="events">Events</button>
+            <button class="tab-btn" data-tab="recognitions">Recognitions</button>
+        </nav>
+
+        <!-- Cameras Tab -->
+        <div class="tab-content active" id="cameras-tab">
+            <div class="section">
+                <h2>Camera List</h2>
+                <button class="btn btn-primary" onclick="showAddCameraModal()">+ Add Camera</button>
+
+                <div class="camera-grid" id="cameraGrid">
+                    <div class="loading">Loading cameras...</div>
+                </div>
+            </div>
+
+            <div class="section">
+                <h2>Live Feed</h2>
+                <div class="video-container">
+                    <select id="cameraSelect" onchange="selectCamera()">
+                        <option value="">Select a camera</option>
+                    </select>
+                    <div class="video-wrapper">
+                        <img id="cameraFeed" src="" alt="Camera feed will appear here">
+                        <div class="video-overlay" id="videoOverlay">
+                            <p>Select a camera to view live feed</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Persons Tab -->
+        <div class="tab-content" id="persons-tab">
+            <div class="section">
+                <h2>Registered Persons</h2>
+                <button class="btn btn-primary" onclick="showAddPersonModal()">+ Add Person</button>
+
+                <div class="table-container">
+                    <table id="personsTable">
+                        <thead>
+                            <tr>
+                                <th>ID</th>
+                                <th>Full Name</th>
+                                <th>Employee No</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr>
+                                <td colspan="4" class="loading">Loading persons...</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+        <!-- Events Tab -->
+        <div class="tab-content" id="events-tab">
+            <div class="section">
+                <h2>Event Handlers</h2>
+                <button class="btn btn-primary" onclick="showAddEventModal()">+ Create Event Handler</button>
+
+                <div class="table-container">
+                    <table id="eventsTable">
+                        <thead>
+                            <tr>
+                                <th>Name</th>
+                                <th>Type</th>
+                                <th>Status</th>
+                                <th>URL</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr>
+                                <td colspan="5" class="loading">Loading events...</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+        <!-- Recognitions Tab -->
+        <div class="tab-content" id="recognitions-tab">
+            <div class="section">
+                <h2>Recognition Results</h2>
+
+                <div class="filters">
+                    <input type="datetime-local" id="startTime" placeholder="Start Time">
+                    <input type="datetime-local" id="endTime" placeholder="End Time">
+                    <button class="btn btn-secondary" onclick="queryRecognitions()">Search</button>
+                </div>
+
+                <div class="recognition-grid" id="recognitionGrid">
+                    <div class="loading">No recognition results yet</div>
+                </div>
+            </div>
+
+            <div class="section">
+                <h2>Real-time Recognition Feed</h2>
+                <button class="btn btn-primary" id="wsToggle" onclick="toggleWebSocket()">Connect WebSocket</button>
+                <div class="ws-status" id="wsStatus">Disconnected</div>
+
+                <div id="liveRecognitions" class="recognition-grid">
+                    <p class="info-text">Connect to WebSocket to see live recognitions</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Add Camera Modal -->
+    <div class="modal" id="addCameraModal">
+        <div class="modal-content">
+            <span class="close" onclick="closeModal('addCameraModal')">&times;</span>
+            <h2>Add New Camera</h2>
+            <form id="addCameraForm" onsubmit="addCamera(event)">
+                <div class="form-group">
+                    <label>Camera Name:</label>
+                    <input type="text" name="name" required>
+                </div>
+                <div class="form-group">
+                    <label>IP Address:</label>
+                    <input type="text" name="ip" required>
+                </div>
+                <div class="form-group">
+                    <label>Port:</label>
+                    <input type="number" name="port" value="554">
+                </div>
+                <div class="form-group">
+                    <label>Username:</label>
+                    <input type="text" name="username">
+                </div>
+                <div class="form-group">
+                    <label>Password:</label>
+                    <input type="password" name="password">
+                </div>
+                <button type="submit" class="btn btn-primary">Add Camera</button>
+            </form>
+        </div>
+    </div>
+
+    <!-- Add Person Modal -->
+    <div class="modal" id="addPersonModal">
+        <div class="modal-content">
+            <span class="close" onclick="closeModal('addPersonModal')">&times;</span>
+            <h2>Add New Person</h2>
+            <form id="addPersonForm" onsubmit="addPerson(event)">
+                <div class="form-group">
+                    <label>Full Name:</label>
+                    <input type="text" name="fullname" required>
+                </div>
+                <div class="form-group">
+                    <label>Employee No:</label>
+                    <input type="text" name="employeeno">
+                </div>
+                <div class="form-group">
+                    <label>Photo:</label>
+                    <input type="file" name="photo" accept="image/*">
+                </div>
+                <button type="submit" class="btn btn-primary">Add Person</button>
+            </form>
+        </div>
+    </div>
+
+    <!-- Add Event Modal -->
+    <div class="modal" id="addEventModal">
+        <div class="modal-content">
+            <span class="close" onclick="closeModal('addEventModal')">&times;</span>
+            <h2>Create Event Handler</h2>
+            <form id="addEventForm" onsubmit="addEvent(event)">
+                <div class="form-group">
+                    <label>Event Name:</label>
+                    <input type="text" name="name" required>
+                </div>
+                <div class="form-group">
+                    <label>Webhook URL:</label>
+                    <input type="url" name="url" required>
+                </div>
+                <div class="form-group">
+                    <label>Method:</label>
+                    <select name="method">
+                        <option value="GET">GET</option>
+                        <option value="POST">POST</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label>Enable:</label>
+                    <input type="checkbox" name="enable" checked>
+                </div>
+                <button type="submit" class="btn btn-primary">Create Event</button>
+            </form>
+        </div>
+    </div>
+
+    <script src="{{ url_for('static', filename='js/app.js') }}"></script>
+</body>
+</html>
