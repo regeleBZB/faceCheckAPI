@@ -38,7 +38,7 @@ camera_storage = {}
 # ============================================
 
 def get_aira_token(force_refresh=False):
-
+    """Generate or return cached airaFace API token"""
     now = datetime.now()
 
     # Return cached token if still valid
@@ -71,7 +71,7 @@ def get_aira_token(force_refresh=False):
 
 
 def make_aira_request(method, endpoint, data=None, params=None):
-
+    """Make authenticated request to airaFace API"""
     token = get_aira_token()
     headers = {'token': token}
     url = f"{AIRA_BASE_URL}{endpoint}"
@@ -95,7 +95,7 @@ def make_aira_request(method, endpoint, data=None, params=None):
 
 
 def get_camera_stream(camera_url, username=None, password=None):
-
+    """Open camera RTSP stream"""
     try:
         # Build RTSP URL with credentials if provided
         if username and password:
@@ -116,13 +116,19 @@ def get_camera_stream(camera_url, username=None, password=None):
         return None
 
 
+# ============================================
+# Main Routes
+# ============================================
+
 @app.route('/')
 def index():
+    """Render main dashboard"""
     return render_template('index.html')
 
 
 @app.route('/api/health')
 def health_check():
+    """Check API health and airaFace connection"""
     try:
         token = get_aira_token()
         return jsonify({
@@ -158,12 +164,12 @@ def refresh_token():
 
 @app.route('/api/camera/<camera_id>/snapshot')
 def get_camera_snapshot(camera_id):
-
+    """Get single snapshot from camera"""
     try:
         camera = camera_storage.get(camera_id)
         if not camera:
-
             return jsonify({'error': 'Camera not found'}), 404
+
         cap = get_camera_stream(
             camera.get('url'),
             camera.get('username'),
@@ -196,9 +202,7 @@ def get_camera_snapshot(camera_id):
 
 @app.route('/api/camera/<camera_id>/stream')
 def camera_stream(camera_id):
-    """
-    Stream camera video (MJPEG format)
-    """
+    """Stream camera video (MJPEG format)"""
 
     def generate_frames(camera_id):
         camera = camera_storage.get(camera_id)
@@ -254,12 +258,15 @@ def camera_stream(camera_id):
 @app.route('/api/persons', methods=['GET'])
 def list_persons():
     """List all registered persons"""
-    result, status = make_aira_request('GET', '/queryperson')
+    result, status = make_aira_request('GET',
+
+                                       '/queryperson')
     return jsonify(result), status
 
 
 @app.route('/api/persons', methods=['POST'])
 def create_person():
+    """Register a new person"""
     data = request.get_json()
     # Validate required fields
     if not data.get('fullname'):
@@ -279,10 +286,13 @@ def modify_person(person_id):
     return jsonify(result), status
 
 
+# ============================================
+# Camera Management Routes
+# ============================================
 
 @app.route('/api/cameras', methods=['GET'])
 def list_cameras():
-
+    """List all registered cameras"""
     result, status = make_aira_request('GET', '/querycamera')
     return jsonify(result), status
 
@@ -366,6 +376,11 @@ def modify_event(event_id):
     result, status = make_aira_request('POST', '/modifyeventhandle', data=data)
     return jsonify(result), status
 
+
+# ============================================
+# Recognition Routes
+# ============================================
+
 @app.route('/api/recognitions', methods=['GET'])
 def query_recognitions():
     """Query recognition results"""
@@ -384,10 +399,13 @@ def query_recognitions():
     return jsonify(result), status
 
 
+# ============================================
+# WebSocket Information Route
+# ============================================
 
 @app.route('/api/websocket/info')
 def websocket_info():
-
+    """Provide WebSocket connection information for real-time events"""
     ws_url = f"ws://{AIRA_CONFIG['server_ip']}/airafacelite/verifyresults"
 
     return jsonify({
@@ -408,6 +426,10 @@ def websocket_info():
     })
 
 
+# ============================================
+# Error Handlers
+# ============================================
+
 @app.errorhandler(404)
 def not_found(error):
     return jsonify({'error': 'Endpoint not found'}), 404
@@ -418,9 +440,13 @@ def internal_error(error):
     return jsonify({'error': 'Internal server error'}), 500
 
 
+# ============================================
+# Application Entry Point
+# ============================================
+
 if __name__ == '__main__':
-    # Create necessary directories
-    os.makedirs('template', exist_ok=True)
+    # Create necessary directories (fixed to use 'templates' plural)
+    os.makedirs('templates', exist_ok=True)
     os.makedirs('static/css', exist_ok=True)
     os.makedirs('static/js', exist_ok=True)
 
@@ -429,4 +455,3 @@ if __name__ == '__main__':
         port=5000,
         debug=True
     )
-
